@@ -8,13 +8,16 @@ const token = process.env.BOT_TOKEN;
 const rtm = new RTMClient(token, {logLevel: 'error'});
 const web = new WebClient(token);
 
+const User = require('./models/User');
+const Sentence = require('./models/Sentence');
+
 mongoose.Promise = global.Promise;
 
 rtm.start();
 
 console.log("Slack bot is started.")
 
-mongoose.connect(process.env.MONGO_URI, { useMongoClient: true })
+mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('Successfully connected to mongodb'))
   .catch(e => console.error(e));
 
@@ -38,10 +41,19 @@ rtm.on("message",(event)=>{
     console.log(event);
 
     if(!event.bot_id){
-        web.chat.postMessage({
-            channel : event.channel,
-            text : "Hi enter the right query please.",
-            as_user: true
-        });
+      
+      const sentence = new Sentence({
+        eng: event.text
+      })
+
+      sentence.save().then(()=>{
+        console.log('Saved succesfully')
+      })
+      
+      web.chat.postMessage({
+          channel : event.channel,
+          text : "Hi",
+          as_user: true
+      });
     }  
 })
