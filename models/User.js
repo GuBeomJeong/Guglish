@@ -2,7 +2,9 @@ const mongoose = require('mongoose');
 
 // Define Schemes
 const userSchema = new mongoose.Schema({
-  id: { type: Number, required: true, unique: true }
+  id: { type: String, required: true, unique: true },
+  channel: {type:String, required: true, unique: true},
+  random: {type: Boolean}
 },
 {
   timestamps: true

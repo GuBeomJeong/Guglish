@@ -13,6 +13,18 @@ const Sentence = require('./models/Sentence');
 
 mongoose.Promise = global.Promise;
 
+const schedule = require('node-schedule');
+
+const schedules = []
+
+const Grammarbot = require('grammarbot');
+
+const bot = new Grammarbot({
+  'api_key' : process.env.GRAMMER_API_KEY,      // (Optional) defaults to node_default
+  'language': 'en-US'         // (Optional) defaults to en-US
+  //'base_uri': 'pro.grammarbot.io', // (Optional) defaults to api.grammarbot.io
+});
+
 rtm.start();
 
 console.log("Slack bot is started.")
@@ -36,24 +48,60 @@ rtm.on('member_joined_channel', async (event) => {
   });
 
 
-rtm.on("message",(event)=>{
+rtm.on("message",async (event)=>{
 
     console.log(event);
 
     if(!event.bot_id){
-      
-      const sentence = new Sentence({
-        eng: event.text
-      })
 
-      sentence.save().then(()=>{
-        console.log('Saved succesfully')
-      })
+      if(event.text == "Register"){
+        // const user = new User({
+        //   id : event.user,
+        //   channel : event.channel,
+        //   random : true
+        // });
+
+        // user.save().then(()=>{
+        //   console.log("User Registered");
+        // });
+
+        // web.chat.postMessage({
+        //     channel : event.channel,
+        //     text : "You will recieve a random sentence.",
+        //     as_user: true
+        // });
+
+        const value = schedule.scheduleJob('10 * * * * *', ()=>{
+          
+          console.log("test")
+
+          web.chat.postMessage({
+            channel : event.channel,
+            text : "Schedule Test",
+            as_user: true
+          });
+        });
+
+        schedules[event.channel] = value 
+      }
+
+      // const sentence = new Sentence({
+      //   eng: event.text
+      // })
+
+      // sentence.save().then(()=>{
+      //   console.log('Saved succesfully')
+      // })
+
+      // bot.check("I can't remember how to go their", function(error, result) {
+      //   if (!error){
+      //     console.log(JSON.stringify(result));
+      //   }
+      // });
       
-      web.chat.postMessage({
-          channel : event.channel,
-          text : "Hi",
-          as_user: true
-      });
+      // Async/Await style
+      // const result = await bot.checkAsync("I can't remember how to go their");
+      // console.log(JSON.stringify(result));
+      
     }  
 })
