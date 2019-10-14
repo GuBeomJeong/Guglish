@@ -27,11 +27,11 @@ const bot = new Grammarbot({
 
 rtm.start();
 
-console.log("Slack bot is started.")
+// mongoose.connect(process.env.MONGO_URI)
+//   .then(() => console.log('Successfully connected to mongodb'))
+//   .catch(e => console.error(e));
 
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('Successfully connected to mongodb'))
-  .catch(e => console.error(e));
+console.log("Slack bot is started.")
 
 rtm.on('member_joined_channel', async (event) => {
     try {
@@ -54,7 +54,39 @@ rtm.on("message",async (event)=>{
 
     if(!event.bot_id){
 
+      if(event.text == "Help"){
+        web.chat.postMessage({
+          channel : event.channel,
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: `Welcome to the channel, <@${event.user}>. We're here to help. Let us know if you have an issue.`,
+              },
+              accessory: {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: 'Get Help',
+                },
+                value: 'get_help',
+              },
+            },
+          ],
+        });
+      }
+
+      if(event.text == "Add"){
+        web.chat.postMessage({
+          channel : event.channel,
+          text : "Enter the sentence.",
+          as_user: true
+        });
+      }
+
       if(event.text == "Register"){
+
         // const user = new User({
         //   id : event.user,
         //   channel : event.channel,
@@ -65,11 +97,20 @@ rtm.on("message",async (event)=>{
         //   console.log("User Registered");
         // });
 
-        // web.chat.postMessage({
-        //     channel : event.channel,
-        //     text : "You will recieve a random sentence.",
-        //     as_user: true
-        // });
+        if(schedules[event.channel]){
+          web.chat.postMessage({
+            channel : event.channel,
+            text : "You are already registered",
+            as_user: true
+          });
+          return;
+        }
+
+        web.chat.postMessage({
+            channel : event.channel,
+            text : "You will recieve a random sentence.",
+            as_user: true
+        });
 
         const value = schedule.scheduleJob('10 * * * * *', ()=>{
           
