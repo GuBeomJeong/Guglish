@@ -11,25 +11,16 @@ const web = new WebClient(token);
 const User = require('./models/User');
 const Sentence = require('./models/Sentence');
 
-mongoose.Promise = global.Promise;
+// mongoose.Promise = global.Promise;
 
 const schedule = require('node-schedule');
-
 const schedules = []
 
-const Grammarbot = require('grammarbot');
+const waitingAddChannels = []
+const sentences = []
 
-const bot = new Grammarbot({
-  'api_key' : process.env.GRAMMER_API_KEY,      // (Optional) defaults to node_default
-  'language': 'en-US'         // (Optional) defaults to en-US
-  //'base_uri': 'pro.grammarbot.io', // (Optional) defaults to api.grammarbot.io
-});
 
 rtm.start();
-
-// mongoose.connect(process.env.MONGO_URI)
-//   .then(() => console.log('Successfully connected to mongodb'))
-//   .catch(e => console.error(e));
 
 console.log("Slack bot is started.")
 
@@ -53,6 +44,30 @@ rtm.on("message",async (event)=>{
     console.log(event);
 
     if(!event.bot_id){
+
+      const channel = event.channel;
+
+      if(waitingAddChannels[channel]){
+      
+        const type = waitingAddChannels[channel].type
+  
+        if(type == 'eng'){
+          waitingAddChannels[channel] = {type:'kr',sentence:event.text};
+          web.chat.postMessage({
+            channel : channel,
+            text : "Enter the sentence(kr).",
+            as_user: true
+          });
+        }else if (type == 'kr'){
+          sentences.push({eng:waitingAddChannels[channel].sentence, kr : event.text});
+          web.chat.postMessage({
+            channel : channel,
+            text : "Success.",
+            as_user: true
+          });
+          waitingAddChannels[channel] = null
+        }
+      }
 
       if(event.text == "Help"){
         web.chat.postMessage({
@@ -80,9 +95,11 @@ rtm.on("message",async (event)=>{
       if(event.text == "Add"){
         web.chat.postMessage({
           channel : event.channel,
-          text : "Enter the sentence.",
+          text : "Enter the sentence(eng).",
           as_user: true
         });
+
+        waitingAddChannels[event.channel] = {type:'eng'}
       }
 
       if(event.text == "Register"){
@@ -118,7 +135,7 @@ rtm.on("message",async (event)=>{
 
           web.chat.postMessage({
             channel : event.channel,
-            text : "Schedule Test",
+            text : sentences[0].eng + sentences[0].kr,
             as_user: true
           });
         });
@@ -146,3 +163,18 @@ rtm.on("message",async (event)=>{
       
     }  
 })
+
+
+
+
+// const Grammarbot = require('grammarbot');
+
+// const bot = new Grammarbot({
+//   'api_key' : process.env.GRAMMER_API_KEY,      // (Optional) defaults to node_default
+//   'language': 'en-US'         // (Optional) defaults to en-US
+//   //'base_uri': 'pro.grammarbot.io', // (Optional) defaults to api.grammarbot.io
+// });
+
+// mongoose.connect(process.env.MONGO_URI)
+//   .then(() => console.log('Successfully connected to mongodb'))
+//   .catch(e => console.error(e));
