@@ -17,10 +17,40 @@ const schedule = require('node-schedule');
 const schedules = []
 
 const waitingAddChannels = []
+const registeredChannels = {}
 const sentences = []
 
+let answer = ""
 
 rtm.start();
+
+const randomSchedule = schedule.scheduleJob('10 * * * * *', ()=>{
+
+  const channels = Object.keys(registeredChannels);
+
+  console.log(sentences.length);
+  console.log(channels.length);
+
+  if(sentences.length  == 0 || channels.length  == 0){
+    console.log("no user or no sentence");
+    return;
+  }
+        
+  let sIdx = Math.floor(Math.random() * (sentences.length));
+  let cIdx = Math.floor(Math.random() * (channels.length));
+
+  console.log(sIdx)
+  console.log(cIdx)
+
+  web.chat.postMessage({
+    channel : channels[cIdx],
+    text : sentences[sIdx].kr,
+    as_user: true
+  });
+
+  registeredChannels[channels[cIdx]].waiting = true;
+  answer = sentences[sIdx].eng
+});
 
 console.log("Slack bot is started.")
 
@@ -41,7 +71,7 @@ rtm.on('member_joined_channel', async (event) => {
 
 rtm.on("message",async (event)=>{
 
-    console.log(event);
+    //console.log(event);
 
     if(!event.bot_id){
 
@@ -52,14 +82,14 @@ rtm.on("message",async (event)=>{
         const type = waitingAddChannels[channel].type
   
         if(type == 'eng'){
-          waitingAddChannels[channel] = {type:'kr',sentence:event.text};
+          waitingAddChannels[channel] = {type:'kr', eng :event.text};
           web.chat.postMessage({
             channel : channel,
             text : "Enter the sentence(kr).",
             as_user: true
           });
         }else if (type == 'kr'){
-          sentences.push({eng:waitingAddChannels[channel].sentence, kr : event.text});
+          sentences.push({eng:waitingAddChannels[channel].eng, kr : event.text});
           web.chat.postMessage({
             channel : channel,
             text : "Success.",
@@ -67,11 +97,55 @@ rtm.on("message",async (event)=>{
           });
           waitingAddChannels[channel] = null
         }
+
+        return;
+      }
+
+      if(registeredChannels[channel] && registeredChannels[channel].waiting == true){
+        web.chat.postMessage({
+          channel : channel,
+          text : "Original right answer : " + answer,
+          as_user: true
+        });
+
+        registeredChannels[channel].waiting = false;
+
+        return;
+      }      
+
+      if(event.text == "Add"){
+        web.chat.postMessage({
+          channel : channel,
+          text : "Enter the sentence(eng).",
+          as_user: true
+        });
+
+        waitingAddChannels[channel] = {type:'eng'}
+      }
+
+      if(event.text == "Register"){
+
+        if(registeredChannels[channel]){
+          web.chat.postMessage({
+            channel : event.channel,
+            text : "You are already registered",
+            as_user: true
+          });
+          return;
+        }
+
+        registeredChannels[channel] = {waiting : false}
+
+        web.chat.postMessage({
+            channel : channel,
+            text : "You will recieve a random sentence.",
+            as_user: true
+        });
       }
 
       if(event.text == "Help"){
         web.chat.postMessage({
-          channel : event.channel,
+          channel : channel,
           blocks: [
             {
               type: 'section',
@@ -92,79 +166,32 @@ rtm.on("message",async (event)=>{
         });
       }
 
-      if(event.text == "Add"){
-        web.chat.postMessage({
-          channel : event.channel,
-          text : "Enter the sentence(eng).",
-          as_user: true
-        });
-
-        waitingAddChannels[event.channel] = {type:'eng'}
-      }
-
-      if(event.text == "Register"){
-
-        // const user = new User({
-        //   id : event.user,
-        //   channel : event.channel,
-        //   random : true
-        // });
-
-        // user.save().then(()=>{
-        //   console.log("User Registered");
-        // });
-
-        if(schedules[event.channel]){
-          web.chat.postMessage({
-            channel : event.channel,
-            text : "You are already registered",
-            as_user: true
-          });
-          return;
-        }
-
-        web.chat.postMessage({
-            channel : event.channel,
-            text : "You will recieve a random sentence.",
-            as_user: true
-        });
-
-        const value = schedule.scheduleJob('10 * * * * *', ()=>{
-          
-          console.log("test")
-
-          web.chat.postMessage({
-            channel : event.channel,
-            text : sentences[0].eng + sentences[0].kr,
-            as_user: true
-          });
-        });
-
-        schedules[event.channel] = value 
-      }
-
-      // const sentence = new Sentence({
-      //   eng: event.text
-      // })
-
-      // sentence.save().then(()=>{
-      //   console.log('Saved succesfully')
-      // })
-
-      // bot.check("I can't remember how to go their", function(error, result) {
-      //   if (!error){
-      //     console.log(JSON.stringify(result));
-      //   }
-      // });
-      
-      // Async/Await style
-      // const result = await bot.checkAsync("I can't remember how to go their");
-      // console.log(JSON.stringify(result));
       
     }  
 })
 
 
+
+
+
+
+// const sentence = new Sentence({
+//   eng: event.text
+// })
+
+// sentence.save().then(()=>{
+//   console.log('Saved succesfully')
+// })
+
+// bot.check("I can't remember how to go their", function(error, result) {
+//   if (!error){
+//     console.log(JSON.stringify(result));
+//   }
+// });
+
+// Async/Await style
+// const result = await bot.checkAsync("I can't remember how to go their");
+// console.log(JSON.stringify(result));
 
 
 // const Grammarbot = require('grammarbot');
@@ -178,3 +205,14 @@ rtm.on("message",async (event)=>{
 // mongoose.connect(process.env.MONGO_URI)
 //   .then(() => console.log('Successfully connected to mongodb'))
 //   .catch(e => console.error(e));
+
+
+// const user = new User({
+//   id : event.user,
+//   channel : event.channel,
+//   random : true
+// });
+
+// user.save().then(()=>{
+//   console.log("User Registered");
+// });
