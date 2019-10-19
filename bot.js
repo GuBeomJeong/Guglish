@@ -34,7 +34,8 @@ const Command = {
   ADD : 'add',
   REGISTER : 'register',
   LIST : 'list',
-  HELP : 'help'
+  HELP : 'help',
+  STOP : 'stop'
 };
 
 Object.freeze(Status);
@@ -59,7 +60,7 @@ function init(){
 
       const channel = {
         status : Status.BASE,
-        randomStatus : false,
+        randomStatus : ch.randomStatus,
         addSentence : {
           eng : "",
           kor : ""
@@ -70,6 +71,9 @@ function init(){
       };
 
       channels[ch.id] = Object.seal(channel);
+      if(ch.randomStatus){
+        registeredChannels.push(ch.id);
+      }
     })
   })
 }
@@ -93,7 +97,7 @@ const randomSchedule = schedule.scheduleJob('10 * * * * *', ()=>{
   
   web.chat.postMessage({
     channel : channelId,
-    text : channel.sentences[sIdx].kor,
+    text : "[Random Question]\n" + channel.sentences[sIdx].kor,
     as_user: true
   });
 
@@ -116,7 +120,7 @@ rtm.on("message",async (event)=>{
         const ch = new Channel({
           id : event.channel,
           randomStatus : false,
-          sentence: []
+          sentences: []
         });
 
         ch.save().then(()=>{
@@ -197,7 +201,7 @@ rtm.on("message",async (event)=>{
 
         web.chat.postMessage({
           channel : event.channel,
-          text : "Original right answer : " + channel.questionAnswer,
+          text : "[Original answer]\n" + channel.questionAnswer,
           as_user: true
         });
 
@@ -224,7 +228,7 @@ rtm.on("message",async (event)=>{
           if(channel.randomStatus){
             web.chat.postMessage({
               channel : event.channel,
-              text : "You are already registered",
+              text : "You are already registered.",
               as_user: true
             });
           
@@ -243,6 +247,10 @@ rtm.on("message",async (event)=>{
   
           registeredChannels.push(event.channel);
           channel.randomStatus = true;
+          channel.DBModel.randomStatus = true;
+          channel.DBModel.save().then(()=>{
+            console.log("register DB Saved.");
+          });
   
           web.chat.postMessage({
               channel : event.channel,
@@ -254,9 +262,26 @@ rtm.on("message",async (event)=>{
         }
       }
 
+      if(event.text == Command.STOP){
+        channel.randomStatus = false;
+        channel.DBModel.randomStatus = false;
+        channel.DBModel.save();
+
+        const idx = registeredChannels.indexOf(event.channel); 
+        if (idx > -1) registeredChannels.splice(idx, 1)
+
+        web.chat.postMessage({
+          channel : event.channel,
+          text : "Register stop.",
+          as_user: true
+        });
+
+        return;
+      }
+
       if(event.text == Command.LIST){
 
-        let result = "";
+        let result = "[Sentence List]\n";
 
         channel.sentences.forEach((sentence) =>{
           result += sentence.eng + " : " + sentence.kor + "\n";
