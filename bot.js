@@ -3,176 +3,271 @@ require('dotenv').config();
 const {RTMClient, WebClient} = require('@slack/client');
 const mongoose = require('mongoose');
 
+const schedule = require('node-schedule');
+
 const token = process.env.BOT_TOKEN;
 
 const rtm = new RTMClient(token, {logLevel: 'error'});
 const web = new WebClient(token);
 
+mongoose.Promise = global.Promise;
+
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log('Successfully connected to mongodb'))
+  .catch(e => console.error(e));
+
 const User = require('./models/User');
 const Sentence = require('./models/Sentence');
 
-// mongoose.Promise = global.Promise;
+const Status = {
+  BASE : 0,
+  WAIT_ADD_ENG : 1,
+  WAIT_ADD_KOR : 2,
+  WAIT_RANDOM_QUESTION_ENG : 3,
+  WAIT_RANDOM_QUESTION_KOR : 4
+};
 
-const schedule = require('node-schedule');
-const schedules = []
+const Command = {
+  ADD : 'add',
+  REGISTER : 'register',
+  LIST : 'list',
+  HELP : 'help'
+};
 
-const waitingAddChannels = []
-const registeredChannels = {}
-const sentences = []
+Object.freeze(Status);
+Object.freeze(Command);
 
-let answer = ""
+const channels = {};
+const registeredChannels = [];
 
 rtm.start();
 
 const randomSchedule = schedule.scheduleJob('10 * * * * *', ()=>{
 
-  const channels = Object.keys(registeredChannels);
+  // const targets = Object.keys(registeredChannels);
 
-  console.log(sentences.length);
-  console.log(channels.length);
-
-  if(sentences.length  == 0 || channels.length  == 0){
-    console.log("no user or no sentence");
+  if(registeredChannels.length  == 0 ){
+    console.log("Registerd user not exist.");
     return;
   }
-        
-  let sIdx = Math.floor(Math.random() * (sentences.length));
-  let cIdx = Math.floor(Math.random() * (channels.length));
-
-  console.log(sIdx)
+   
+  let cIdx = Math.floor(Math.random() * (registeredChannels.length));
+  const channelId = registeredChannels[cIdx];
+  const channel = channels[channelId];
+  let sIdx = Math.floor(Math.random() * (channel.sentences.length));
+  
   console.log(cIdx)
-
+  console.log(sIdx)
+  
   web.chat.postMessage({
-    channel : channels[cIdx],
-    text : sentences[sIdx].kr,
+    channel : channelId,
+    text : channel.sentences[sIdx].kor,
     as_user: true
   });
 
-  registeredChannels[channels[cIdx]].waiting = true;
-  answer = sentences[sIdx].eng
+  channel.status = Status.WAIT_RANDOM_QUESTION_KOR;
+  channel.questionAnswer = channel.sentences[sIdx].eng;
 });
 
 console.log("Slack bot is started.")
 
-rtm.on('member_joined_channel', async (event) => {
-    try {
-      // Send a typing indicator, and wait for 3 seconds
-      await rtm.sendTyping(event.channel);
-      await (new Promise((resolve) => setTimeout(resolve, 3000)));
-  
-      // Send a message (clears typing indicator)
-      const reply = await rtm.sendMessage(`Welcome to the channel, <@${event.user}>`, event.channel)
-      console.log('Message sent successfully', reply.ts);
-    } catch (error) {
-      console.log('An error occurred', error);
-    }
-  });
-
-
 rtm.on("message",async (event)=>{
-
-    //console.log(event);
 
     if(!event.bot_id){
 
-      const channel = event.channel;
+      console.log(event);
 
-      if(waitingAddChannels[channel]){
-      
-        const type = waitingAddChannels[channel].type
-  
-        if(type == 'eng'){
-          waitingAddChannels[channel] = {type:'kr', eng :event.text};
-          web.chat.postMessage({
-            channel : channel,
-            text : "Enter the sentence(kr).",
-            as_user: true
-          });
-        }else if (type == 'kr'){
-          sentences.push({eng:waitingAddChannels[channel].eng, kr : event.text});
-          web.chat.postMessage({
-            channel : channel,
-            text : "Success.",
-            as_user: true
-          });
-          waitingAddChannels[channel] = null
+      const channel = channels[event.channel];
+
+      if(!channel){
+
+        let newChannel = {
+          status : Status.BASE,
+          randomStatus : false,
+          addSentence : {
+            eng : "",
+            kor : ""
+          },
+          questionAnswer: "",
+          sentences : []
+        };
+
+        channels[event.channel] = Object.seal(newChannel);
+
+        console.log("New Channel");
+        return;
+      }
+
+      if(channel.status == Status.WAIT_ADD_ENG){
+
+        channel.addSentence.eng = event.text;
+        channel.status = Status.WAIT_ADD_KOR;
+
+        web.chat.postMessage({
+          channel : event.channel,
+          text : "Enter the sentence(kor).",
+          as_user: true
+        });
+
+        return;
+      }
+
+      if(channel.status == Status.WAIT_ADD_KOR){
+
+        channel.addSentence.kor = event.text;
+        let newSentence = {
+          eng : channel.addSentence.eng,
+          kor : channel.addSentence.kor
         }
+        channel.sentences.push(newSentence);
+        channel.status = Status.BASE;
+
+        web.chat.postMessage({
+          channel : event.channel,
+          text : "Add successfully.",
+          as_user: true
+        });
 
         return;
       }
 
-      if(registeredChannels[channel] && registeredChannels[channel].waiting == true){
+      if(channel.status == Status.WAIT_RANDOM_QUESTION_KOR){
+
+        channel.status = Status.BASE;
+
         web.chat.postMessage({
-          channel : channel,
-          text : "Original right answer : " + answer,
+          channel : event.channel,
+          text : "Original right answer : " + channel.questionAnswer,
           as_user: true
         });
-
-        registeredChannels[channel].waiting = false;
 
         return;
-      }      
-
-      if(event.text == "Add"){
-        web.chat.postMessage({
-          channel : channel,
-          text : "Enter the sentence(eng).",
-          as_user: true
-        });
-
-        waitingAddChannels[channel] = {type:'eng'}
       }
 
-      if(event.text == "Register"){
+      if(channel.status == Status.BASE){
+        
+        if(event.text == Command.ADD){
 
-        if(registeredChannels[channel]){
+          channel.status = Status.WAIT_ADD_ENG;
+  
           web.chat.postMessage({
             channel : event.channel,
-            text : "You are already registered",
+            text : "Enter the sentence(eng).",
             as_user: true
           });
+  
           return;
         }
 
-        registeredChannels[channel] = {waiting : false}
+        if(event.text == Command.REGISTER){
 
-        web.chat.postMessage({
-            channel : channel,
-            text : "You will recieve a random sentence.",
-            as_user: true
-        });
+          if(channel.randomStatus){
+            web.chat.postMessage({
+              channel : event.channel,
+              text : "You are already registered",
+              as_user: true
+            });
+          
+            return;
+          }
+  
+          if(channel.sentences.length == 0){
+            web.chat.postMessage({
+              channel : event.channel,
+              text : "At least one sentence must be added.",
+              as_user: true
+            });
+  
+            return;
+          }
+  
+          registeredChannels.push(event.channel);
+          channel.randomStatus = true;
+  
+          web.chat.postMessage({
+              channel : event.channel,
+              text : "You will recieve a random sentence.",
+              as_user: true
+          });
+  
+          return;
+        }
       }
 
-      if(event.text == "Help"){
-        web.chat.postMessage({
-          channel : channel,
-          blocks: [
-            {
-              type: 'section',
-              text: {
-                type: 'mrkdwn',
-                text: `Welcome to the channel, <@${event.user}>. We're here to help. Let us know if you have an issue.`,
-              },
-              accessory: {
-                type: 'button',
-                text: {
-                  type: 'plain_text',
-                  text: 'Get Help',
-                },
-                value: 'get_help',
-              },
-            },
-          ],
-        });
-      }
+      if(event.text == Command.LIST){
 
+        console.log("list command");
+        let result = "";
+
+        for(let i in channel.sentences){
+          console.log(channel.sentences[i]);
+        }
+
+        channel.sentences.forEach((sentence) =>{
+          result += sentence.eng + " : " + sentence.kor + "\n";
+          console.log(sentence);
+        })
+
+        if(result == ""){
+          result = "List Empty";
+        }
+
+        web.chat.postMessage({
+          channel : event.channel,
+          text : result,
+          as_user: true
+        });
+
+        return;
+      }
       
+      web.chat.postMessage({
+        channel : event.channel,
+        text : "Unknown command.",
+        as_user: true
+      });
+
     }  
 })
 
 
+// rtm.on('member_joined_channel', async (event) => {
+//     try {
+//       // Send a typing indicator, and wait for 3 seconds
+//       await rtm.sendTyping(event.channel);
+//       await (new Promise((resolve) => setTimeout(resolve, 3000)));
+  
+//       // Send a message (clears typing indicator)
+//       const reply = await rtm.sendMessage(`Welcome to the channel, <@${event.user}>`, event.channel)
+//       console.log('Message sent successfully', reply.ts);
+//     } catch (error) {
+//       console.log('An error occurred', error);
+//     }
+//   });
 
 
+// if(event.text == "Help"){
+//   web.chat.postMessage({
+//     channel : channel,
+//     blocks: [
+//       {
+//         type: 'section',
+//         text: {
+//           type: 'mrkdwn',
+//           text: `Welcome to the channel, <@${event.user}>. We're here to help. Let us know if you have an issue.`,
+//         },
+//         accessory: {
+//           type: 'button',
+//           text: {
+//             type: 'plain_text',
+//             text: 'Get Help',
+//           },
+//           value: 'get_help',
+//         },
+//       },
+//     ],
+//   });
+// }
 
 
 // const sentence = new Sentence({
@@ -201,11 +296,6 @@ rtm.on("message",async (event)=>{
 //   'language': 'en-US'         // (Optional) defaults to en-US
 //   //'base_uri': 'pro.grammarbot.io', // (Optional) defaults to api.grammarbot.io
 // });
-
-// mongoose.connect(process.env.MONGO_URI)
-//   .then(() => console.log('Successfully connected to mongodb'))
-//   .catch(e => console.error(e));
-
 
 // const user = new User({
 //   id : event.user,
