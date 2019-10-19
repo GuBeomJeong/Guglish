@@ -13,10 +13,13 @@ const web = new WebClient(token);
 mongoose.Promise = global.Promise;
 
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('Successfully connected to mongodb'))
+  .then(() => {
+    console.log('Successfully connected to mongodb');
+    init();
+  })
   .catch(e => console.error(e));
 
-const User = require('./models/User');
+const Channel = require('./models/Channel');
 const Sentence = require('./models/Sentence');
 
 const Status = {
@@ -42,9 +45,36 @@ const registeredChannels = [];
 
 rtm.start();
 
-const randomSchedule = schedule.scheduleJob('10 * * * * *', ()=>{
+function init(){
+  Channel.find({}).populate('sentences').exec((err,chs)=>{
 
-  // const targets = Object.keys(registeredChannels);
+    if(!chs.length){
+      console.log("no channel");
+      return;
+    }
+
+    chs.forEach((ch) =>{
+
+      console.log(ch);
+
+      const channel = {
+        status : Status.BASE,
+        randomStatus : false,
+        addSentence : {
+          eng : "",
+          kor : ""
+        },
+        questionAnswer: "",
+        sentences : ch.sentences,
+        DBModel : ch
+      };
+
+      channels[ch.id] = Object.seal(channel);
+    })
+  })
+}
+
+const randomSchedule = schedule.scheduleJob('10 * * * * *', ()=>{
 
   if(registeredChannels.length  == 0 ){
     console.log("Registerd user not exist.");
@@ -54,10 +84,12 @@ const randomSchedule = schedule.scheduleJob('10 * * * * *', ()=>{
   let cIdx = Math.floor(Math.random() * (registeredChannels.length));
   const channelId = registeredChannels[cIdx];
   const channel = channels[channelId];
+
+  if(!channel.status == Status.BASE){
+    return;
+  }
+
   let sIdx = Math.floor(Math.random() * (channel.sentences.length));
-  
-  console.log(cIdx)
-  console.log(sIdx)
   
   web.chat.postMessage({
     channel : channelId,
@@ -81,6 +113,16 @@ rtm.on("message",async (event)=>{
 
       if(!channel){
 
+        const ch = new Channel({
+          id : event.channel,
+          randomStatus : false,
+          sentence: []
+        });
+
+        ch.save().then(()=>{
+          console.log("Channel DB Added");
+        });
+
         let newChannel = {
           status : Status.BASE,
           randomStatus : false,
@@ -89,12 +131,20 @@ rtm.on("message",async (event)=>{
             kor : ""
           },
           questionAnswer: "",
-          sentences : []
+          sentences : [],
+          DBModel : ch
         };
 
         channels[event.channel] = Object.seal(newChannel);
 
         console.log("New Channel");
+
+        web.chat.postMessage({
+          channel : event.channel,
+          text : "You are added. Retry again.",
+          as_user: true
+        });
+
         return;
       }
 
@@ -119,8 +169,18 @@ rtm.on("message",async (event)=>{
           eng : channel.addSentence.eng,
           kor : channel.addSentence.kor
         }
-        channel.sentences.push(newSentence);
         channel.status = Status.BASE;
+
+        const sentence = new Sentence(newSentence);
+
+        sentence.save().then(()=>{
+          console.log('Sentence DB added succesfully');
+
+          channel.DBModel.sentences.push(sentence);
+          channel.DBModel.save().then(()=>{
+            console.log("Channel Sentence Added");
+          })
+        });
 
         web.chat.postMessage({
           channel : event.channel,
@@ -196,16 +256,10 @@ rtm.on("message",async (event)=>{
 
       if(event.text == Command.LIST){
 
-        console.log("list command");
         let result = "";
-
-        for(let i in channel.sentences){
-          console.log(channel.sentences[i]);
-        }
 
         channel.sentences.forEach((sentence) =>{
           result += sentence.eng + " : " + sentence.kor + "\n";
-          console.log(sentence);
         })
 
         if(result == ""){
@@ -270,13 +324,7 @@ rtm.on("message",async (event)=>{
 // }
 
 
-// const sentence = new Sentence({
-//   eng: event.text
-// })
 
-// sentence.save().then(()=>{
-//   console.log('Saved succesfully')
-// })
 
 // bot.check("I can't remember how to go their", function(error, result) {
 //   if (!error){
@@ -297,12 +345,3 @@ rtm.on("message",async (event)=>{
 //   //'base_uri': 'pro.grammarbot.io', // (Optional) defaults to api.grammarbot.io
 // });
 
-// const user = new User({
-//   id : event.user,
-//   channel : event.channel,
-//   random : true
-// });
-
-// user.save().then(()=>{
-//   console.log("User Registered");
-// });
